@@ -185,3 +185,4 @@ flags = [ ]
   data_vg_lv data_vg -wi--- 2.50G                                       /dev/xvdd(0)
   data_vg_lv data_vg -wi--- 2.50G                                       /dev/xvde(0)
 ```
+More information [Reference URL](https://www.thegeekdiary.com/couldnt-find-device-with-uuid-uuid-lvm-not-active-on-reboot/)
