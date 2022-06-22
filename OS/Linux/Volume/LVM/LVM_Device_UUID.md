@@ -1,52 +1,54 @@
-# LVM引导不起来UUID故障解决
+# The Problem
+After a reboot the system will not start or activate one of the LVM volume groups. Trying to activate the group manually produces the message:
 
-## 问题
-重新引导后，系统将无法启动或激活其中一个 LVM 卷组。尝试手动激活组会产生以下消息：
 Couldn't find device with uuid '[UUID]'
+# The Solution
+* The string LABELONE at the metadata location marks the device as being part of an LVM device. Without this string, lvm3 will not attempt to utilize the device as a physical volume. The physical device metadata can be overwritten because of a system error or a deliberate manual action.
 
-# 解决方法
-* 元数据位置处的字符串 LABELONE 将设备标记为 LVM 设备的一部分。如果没有此字符串，lvm3 将不会尝试将设备用作物理卷。物理设备元数据可能会由于系统错误或故意的手动操作而被覆盖。
-* 对于 Linux 版本 4 或 5，默认元数据区域为 192Kb。对于 Linux 版本 6，默认元数据为 1Mb。在尝试任何恢复或修复活动之前，强烈建议您制作此区域的备份副本
+* For Linux versions 4 or 5, the default metadata area is 192Kb. For Linux version 6, the default metadata is 1Mb. Prior to attempting any recovery or repair activities, you are strongly encouraged to make a backup copy of this area:
+
 ```
 # /bin/dd if=/dev/xvdd of=/root/xvdd.metadata bs=1K count=[192_or_1024]
 ```
-要检查 LVM 签名，请执行以下操作：
+To check for the LVM signature, do this:
+
 ```
 # /bin/strings /root/xvdd.metadata | /bin/fgrep LABELONE
 ```
-如果未生成任何输出，则元数据已损坏
+If no output is produced, the metadata is corrupt.
 
-查看以下信息：
+Review the information in:
 
 /etc/lvm/backup
-
 /etc/lvm/archives
+for changes. If these have been changed or are inconsistent, it is possible for the restoration activity to corrupt the entire volume data. Verify that the physical device or LUN is still available, or still presented to this server.
 
-如果这些内容已更改或不一致，则还原活动可能会损坏整个卷数据。验证物理设备或 LUN 是否仍然可用，或者仍提供给此服务器。
+Be diligent to make regular backup for all LVM volumes. While they may be recoverable, it is also possible for a misconfiguration to completely corrupt the entire dataset.
 
-请努力为所有 LVM 卷进行定期备份。虽然它们可能是可恢复的，但配置错误也可能完全损坏整个数据集。
+1. Note that this item is important only if you also have any multipathed devices on your system. If you do not use LVM and multipathing on the same server, you may safely skip this item.
 
-1) 请注意，仅当您的系统上还有任何多路径设备时，此项目才重要。如果不在同一台服务器上使用 LVM 和多路径，则可以安全地跳过此项。
+During system startup, the LVM subsystem is notified each time a block device, such as a disk drive or LUN, so that the device can be used to construct an LVM volume. This is an asynchronous process; there is no guarantee that the devices will be discovered in the same order each time the sytem is booted. This means that the physical paths of a multipathed device are likely to be discovered before the composite logical device is complete, leading to the physical path being claimed by the LVM subsystem before the multipath subsystem is offered the device. There are two undesirable results of this condition:
 
-在系统启动期间，每次块设备（如磁盘驱动器或 LUN）时，LVM 子系统都会收到通知，以便该设备可用于构建 LVM 卷。这是一个异步过程;无法保证每次启动系统时都会以相同的顺序发现设备。这意味着多路径设备的物理路径很可能在复合逻辑设备完成之前被发现，从而导致在为多路径子系统提供设备之前，LVM 子系统声明了物理路径。这种情况有两个不良结果：
+a. Only a single path to the multipath device gets utilized and claimed by LVM, leaving the system vulnerable to a single-point failure causing catastrophic loss of connectivity to the storage.
 
- a. LVM 仅使用和声明到多路径设备的单个路径，使系统容易受到单点故障的影响，从而导致与存储的连接灾难性丢失。
+b. Since LVM gains exclusive ownership of the physical path, the multipathing layer reports the device as busy and cannot build the multipath device. This leaves the storage subject to a single-point failure preventing access to storage. The solution is to force the LVM to consider only those block devices which are to actually hold part of an LVM volume. The way to do this is to look into the /etc/lvm/lvm.conf file:
 
- b. 由于 LVM 获得物理路径的独占所有权，因此多路径层将设备报告为忙碌，无法构建多路径设备。这会使存储受到单点故障的影响，从而阻止对存储的访问。解决方案是强制 LVM 仅考虑那些实际保存 LVM 卷一部分的块设备。执行此操作的方法是查看 /etc/lvm/lvm.conf 文件：
 ```
 # /bin/fgrep -n -e 's/#.*//' -e '/filter/p' /etc/lvm/lvm.conf
 filter = [ "a/.*/" ]
 ```
-如果您的输出与上述内容类似，则表示您遇到了 LVM 配置问题，如果您在系统上使用多路径设备，则可能会破坏这些设备。更改此参数超出了本说明的范围。假设您已更正此值，我们将继续进行。
+If your output looks like the above, you have an LVM configuration problem that will likely break any multipath devices, if you use them on your system. Changing this parameter is outside the scope of this note. We will proceed assuming you have corrected this value.
 
-2) 有时，保存 LVM 数据的存储识别速度很慢，如果在系统稳定后访问，则可能会成功挂载。首先，我们将清点可用的块设备并确定UUID：
+2. Sometimes the storage which holds the LVM data is slow to be recognized and may be successfully mounted if accessed after the system has stabilized. To begin, we will inventory the available block devices and determine the UUID’s:
+
 ```
 # /sbin/vgscan
 Reading all physical volumes.  This may take a while...
 Couldn't fine device with uuid  70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt.
 Found volume group "data_vg" using metadata type lvm2
 ```
-现在我们有导致问题的UUID，我们必须找到关联的设备：
+Now that we have the UUID causing the issue, we must find the associated device:
+
 ```
 # /sbin/pvs -o +uuid
 Couldn't find device with uuid 70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt.
@@ -55,7 +57,8 @@ Couldn't find device with uuid 70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt.
   /dev/xvde      data_vg lvm2 a--  996.00M 428.00M tGIqvd-lsYv-7JmV-1bfD-t7BL-HaGi-rmIYW0
   unknown device data_vg lvm2 a-m  996.00M      0  70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt
 ```
-3) 我们可以查看逻辑卷在物理设备之间的分布情况，如下所示：
+3. We can view the distribution of the logical volumes across the physical devices like this:
+
 ```
 # /sbin/lvs -o +devices
 Couldn't find device with uuid 70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt.
@@ -63,15 +66,17 @@ Couldn't find device with uuid 70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt.
   data_vg_lv data_vg -wi-a- 2.50G                                       /dev/xvdc(0)
   data_vg_lv data_vg -wi-a- 2.50G                                       unknown device(0)
   data_vg_lv data_vg -wi-a- 2.50G                                       /dev/xvde(0) =
-```
-4) 尝试激活卷组：
+ ```
+4. Try to activate the volume group:
+
 ```
 # /sbin/vgchange -a y data_vg
   Couldn't find device with uuid 70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt.
   Refusing activation of partial LV data_vg_lv. Use --partial to override.
   1 logical volume(s) in volume group "data_vg" now active
 ```
-5) 尝试缩小卷组并删除丢失的设备：
+5. Try to reduce the volume group and remove the missing device:
+
 ```
 # /sbin/vgreduce --removemissing data_vg
   Couldn't find device with uuid 70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt.
@@ -85,7 +90,8 @@ Couldn't find device with uuid 70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt.
   Logical volume "data_vg_lv" successfully removed
   Wrote out consistent volume group data_vg
 ```
-6) 从组中消除丢失的设备后，LVM 设备应激活：
+6. With the missing device eliminated from the group, the LVM device should activate:
+
 ```
 # /sbin/pvs
   PV         VG      Fmt  Attr PSize   PFree
@@ -121,34 +127,42 @@ Couldn't find device with uuid 70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt.
   Free  PE / Size       498 / 1.95 GB
   VG UUID               yTOvvd-ZjUe-gXP0-41BT-qUIk-8uPR-lpr9Pw
 ```
-7) 我们可以尝试使用存储在 /etc/lvm/archive/ 目录中的信息来还原卷组：
+7. We can try to restore the volume group using the information stored in the /etc/lvm/archive/ directory:
+
 ```
 # /sbin/vgcfgrestore -f data_vg_00003-1023778751.vg data_vg
   Couldn't find device with uuid 70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt.
   Cannot restore Volume Group data_vg with 1 PVs marked as missing.
   Restore failed.
 ```
-8) 尝试根据从卷组信息派生的 UUID 设置覆盖或重新查询设备信息：
+8. Trying to overwrite or resqore the device information based on the UUID settings derived from the volume group information:
+
 ```
 # /sbin/pvcreate --restorefile /etc/lvm/archive/data_vg_00003-1023778751.vg --uuid 70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt /dev/xvdd
   Couldn't find device with uuid 70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt.
   Writing physical volume data to disk "/dev/xvdd"
   Physical volume "/dev/xvdd" successfully created
-```
-如果上面操作失败，执行下面命令清除元数据后再执行8操作：
+
+```  
+<u> If the above operation fails, execute the following command to clear the metadata and then perform the operation in step 8：</u>
+
 ```
 wipefs -a data_vg
 ```
-9) 使用文本编辑器打开卷组信息，例如 /etc/lvm/archive/data_vg_00003-1023778751.vg，然后从标志条目中删除"MISSING"字符串，使其如下所示：
+
+9. Open the volume group information, for example /etc/lvm/archive/data_vg_00003-1023778751.vg using a text editor and remove the “MISSING” string from the flags entry so it looks like this:
+
 ```
 flags = [ ]
 ```
-10) 使用以下修改后的条目恢复 LVM：
+10. Restore the LVM using this modified entry:
+
 ```
 # /sbin/ vgcfgrestore -f /etc/lvm/archive/data_vg_00003-1023778751.vg data_vg
   Restored volume group data_vg
 ```
-11) 验证环境：
+11. Verify the environment:
+
 ```
 # /sbin/vgscan
   Reading all physical volumes.  This may take a while...
@@ -161,8 +175,9 @@ flags = [ ]
   /dev/xvdc  data_vg lvm2 a--  996.00M      0  VrVT1L-CTcT-9Nn9-oIAx-BnEA-X7sv-vJO6RE
   /dev/xvdd  data_vg lvm2 a--  996.00M      0  70FBaa-3QKh-HTAF-gUzZ-u3mu-2RRs-hI3BIt
   /dev/xvde  data_vg lvm2 a--  996.00M 428.00M tGIqvd-lsYv-7JmV-1bfD-t7BL-HaGi-rmIYW0
-```  
-12) 验证 LVM 可用性：
+```
+12. Verify the LVM availability:
+
 ```
 # /sbin/lvs -o +devices
   LV         VG      Attr   LSize Origin Snap%  Move Log Copy%  Convert Devices
