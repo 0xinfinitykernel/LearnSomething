@@ -1,0 +1,38 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cleaner-etcd
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: "Forbid"
+  failedJobsHistoryLimit: 10
+  startingDeadlineSeconds: 600 # 10 min
+  successfulJobsHistoryLimit: 6
+  jobTemplate:
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 0
+      activeDeadlineSeconds: 900 # 15min
+      template:
+        metadata:
+          labels:
+            app: cleaner-etcd
+        spec:
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchExpressions:
+                      - key: app.kubernetes.io/instance
+                        operator: In
+                        values:
+                          - etcd
+                  topologyKey: "kubernetes.io/hostname"
+          containers:
+            - name: cleaner-etcd
+              image: docker.io/bitnami/etcd:3.5.0-debian-10-r24
+              command: ["/bin/bash"]
+              args: ["-c","for i in etcd-0 etcd-1 etcd-2; do etcdctl --endpoints=http://$i.etcd-headless:2379 compact $(etcdctl --endpoints=http://$i.etcd-headless:2379 endpoint status --write-out=\"json\" | egrep -o '\"revision\":[0-9]*' | egrep -o '[0-9].*'); etcdctl --endpoints=http://$i.etcd-headless:2379 defrag; etcdctl --write-out=table --endpoints=$i.etcd-headless:2379 endpoint status; sleep 60; done"]
+          restartPolicy: Never
