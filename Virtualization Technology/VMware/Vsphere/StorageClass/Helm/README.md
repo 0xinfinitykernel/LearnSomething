@@ -3,7 +3,7 @@ To resolve this issue, perform one of the below options:
 * Create a virtual machine using a vSphere Web Client.
 * After creating a virtual machine using the Host Client, add a virtual machine’s disk.EnableUUID attribute manually with following steps:
 1. Open the Host Client, and log in to the ESXi.
-2. Locate the Windows Server 2016 virtual machine for which you are enabling the disk UUID attribute, and power off the virtual machine.
+2. Locate the virtual machine for which you are enabling the disk UUID attribute, and power off the virtual machine.
 3. After power-off, right-click the virtual machine, and choose Edit Settings.
 4. Click VM Options tab, and select Advanced.
 5. Click Edit Configuration in Configuration Parameters.
