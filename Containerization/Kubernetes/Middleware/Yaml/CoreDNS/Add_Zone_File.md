@@ -122,3 +122,4 @@ dns2.dev.com.    IN  A   172.18.81.36
 rancher.dev.com.    IN  A   172.18.81.36
 *.dev.com.    IN  A   172.18.81.36
 ```
+More information [Reference URL](https://kb.novaordis.com/index.php/Add_a_Zone_File_to_Kubernetes_CoreDNS)
