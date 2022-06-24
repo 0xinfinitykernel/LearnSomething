@@ -1,0 +1,91 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: limited
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+      - "limited.io.dev.com"
+      - "gateway.io.dev.com"
+    tls:
+      httpsRedirect: true # sends 301 redirect for http requests
+  - port:
+      number: 443
+      # 当多个tls域名时，请修改这里的name,避免tls冲突。
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: io.dev.com # must be the same as secret
+    # 当多个子域名，使用相同证书时，例如通配符证书的情况，请必须使用一个GateWay,例如此文档中的用法。
+    hosts:
+      - "*.io.dev.com"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: limited2
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http2
+        protocol: HTTP
+      hosts:
+        - "limited.dev.com"
+        - "gateway.dev.com"
+      tls:
+        httpsRedirect: true # sends 301 redirect for http requests
+    - port:
+        number: 443
+        # 当多个tls域名时，请修改这里的name,避免tls冲突,例如这里https2。
+        name: https2
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: io.dev.com # must be the same as secret
+      # 当多个子域名，使用相同证书且服务所处于同一个命名空间时，例如通配符证书的情况，请必须使用一个GateWay,例如此文档中的用法,经过测试，在不同命名空间中的Gateway不受影响。
+      # 结论是不同命名空间，可以使用同一个通配符证书的配置，服务所在命名空间，应有对应的Gateway、VS。
+      hosts:
+        - "*.dev.com"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: limited
+spec:
+  hosts:
+  - "limited.io.dev.com"
+  gateways:
+  - limited
+  http:
+  - route:
+    - destination:
+        host: limited
+        port:
+          number: 80
+---
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: limited2
+spec:
+  hosts:
+    - "limited.dev.com"
+  gateways:
+    - limited2
+  http:
+    - route:
+        - destination:
+            host: limited2
+            port:
+              number: 80

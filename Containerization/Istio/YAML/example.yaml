@@ -1,0 +1,63 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: secret-list-web
+spec:
+  hosts:
+    - "secret-list-web.io.dev1.com"
+    - "secret-list-web.io.dev2.com"
+    - "secret-list-web.io.dev3.com"
+  gateways:
+    - limited-time-offers-front
+  http:
+    - match:
+        - uri:
+            exact: /index
+        - uri:
+            regex: '^.*\.(ico|png|jpg|html)$'
+            # 匹配上述正则，修改header,如果未命中，则匹配下一处route.
+      headers:
+        request:
+          # 这里request好像没生效,可能实际是有效，只是浏览器没有显示出来，可以用httpbin工具具体测试一下，已知response是没问题的。
+          set:
+            Cache-Control: "no-cache"
+          set:
+            Pragma: "no-cache"
+      route:
+        - destination:
+            host: secret-list-web
+            subset: v1
+          headers:
+            response:
+              remove:
+                - x-powered-by
+              set:
+                Cache-Control: "no-store, no-cache, must-revalidate"
+              add:
+                Pragma: "no-cache"
+          weight: 100
+    - route:
+        - destination:
+            host: secret-list-web
+            subset: v1
+          headers:
+            response:
+              remove:
+                - x-powered-by
+              add:
+                Cache-Control: "max-age=7000"
+          weight: 100
+
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: secret-list-web
+spec:
+  host: secret-list-web
+  subsets:
+    - name: v1
+      labels:
+        app: secret-list-web
+
