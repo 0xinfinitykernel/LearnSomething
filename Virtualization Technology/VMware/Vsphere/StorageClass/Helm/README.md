@@ -12,7 +12,12 @@ To resolve this issue, perform one of the below options:
 8. In the Value column, type TRUE.
 9. Click OK and click Save.
 10. Power on the virtual machine
-
+```azure
+# kubectl describe po -n dev ess-master-0
+    
+  Warning  FailedAttachVolume  30s                attachdetach-controller  AttachVolume.Attach failed for volume "pvc-424f6d5b-181b-4b4d-a599-fc404bf455c3" : rpc error: code = Internal desc = failed to attach disk: "f07f0b78-b70b-455d-a031-820719c4010f" with node: "k8s-node06" err failed to attach cns volume: "f07f0b78-b70b-455d-a031-820719c4010f" to node vm: "VirtualMachine:vm-1082 [VirtualCenterHost: 172.16.50.220, UUID: 564daa78-9e44-7461-dd09-0af37cf3c25a, Datacenter: Datacenter [Datacenter: Datacenter:datacenter-1055, VirtualCenterHost: 172.16.50.220]]". fault: "(*types.LocalizedMethodFault)(0xc000dffe60)({\n DynamicData: (types.DynamicData) {\n },\n Fault: (types.CnsFault) {\n  BaseMethodFault: (types.BaseMethodFault) <nil>,\n  Reason: (string) (len=16) \"VSLM task failed\"\n },\n LocalizedMessage: (string) (len=32) \"CnsFault error: VSLM task failed\"\n})\n". opId: "07e31050"
+```
+if storgeclass "volumeMode": "Block", and pod return error "CnsFault error: VSLM task failed, you can try to add "ctkEnabled": "TRUE" in vmx file. [check here](https://kb.vmware.com/s/article/1020128)
 ## Configure the Aggregation Layer
 More information [here](https://kubernetes.io/docs/tasks/extend-kubernetes/configure-aggregation-layer/)
 ```
@@ -60,29 +65,33 @@ WantedBy=multi-user.target
 ```
 
 ## The created PVC and node use the same datastore.
-Install CPI
-``` 
-helm install vsphere-cpi \
-     --namespace kube-system \
-     ./vsphere-cpi/1.0.100 \
-     --set vCenter.host=10.243.208.15 \
-     --set vCenter.username=xxx@xxx.local \
-     --set vCenter.password=1qaz@WSX3edc \
-     --set vCenter.datacenters=Datacenter
-``` 
+
 Install CSI
 ``` 
 helm install vsphere-csi \
      --namespace kube-system \
      ./vsphere-csi/2.3.1 \
-     --set vCenter.host=10.243.208.15 \
-     --set vCenter.username=xxx@xxx.local \
-     --set vCenter.password=1qaz@WSX3edc \
+     --set vCenter.host=172.16.50.220 \
+     --set vCenter.username=wlhairou@vsphere.local \
+     --set vCenter.password=RTa@EA12F3hairou \
      --set vCenter.clusterId=local \
-     --set vCenter.datacenters=Datacenter \
+     --set vCenter.datacenters=WULIU \
      --set csiController.csiResizer.enabled=true \
      --set onlineVolumeExtend.enabled=true \
      --set storageClass.allowVolumeExpansion=true
+```
+Install CPI
+``` 
+helm install vsphere-cpi \
+     --namespace kube-system \
+     ./vsphere-cpi/1.0.100 \
+     --set vCenter.host=172.16.50.220 \
+     --set vCenter.username=wlhairou@vsphere.local \
+     --set vCenter.password=RTa@EA12F3hairou \
+     --set vCenter.datacenters=WULIU
+```
+```
+在没有master节点时，注意容忍和节点亲和的配置。
 ```
 ## Migration
 
