@@ -8,7 +8,7 @@ spec:
     - "secret-list-web.io.dev2.com"
     - "secret-list-web.io.dev3.com"
   gateways:
-    - limited-time-offers-front
+    - default/limited-time-offers-front
   http:
     - match:
         - uri:
