@@ -61,3 +61,11 @@ func GateWay() {
 	istioClient.NetworkingV1alpha3().Gateways(namespace).Create(context.TODO(), gateway, v1.CreateOptions{})
 
 }
+
+/*
+创建证书
+kubectl create -n istio-system secret generic {ca_name}\
+  --from-file=tls.key=privkey.pem \
+  --from-file=tls.crt=fullchain.pem \
+  --from-file=ca.crt=cert.pem
+*/
