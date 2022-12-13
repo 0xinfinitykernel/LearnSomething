@@ -8,6 +8,7 @@ spec:
     - "secret-list-web.io.dev2.com"
     - "secret-list-web.io.dev3.com"
   gateways:
+    # 跨namespace引用gateway,主要场景用于解决通配符证书时，不同命名空间只能使用一个GateWay。
     - default/limited-time-offers-front
   http:
     - match:
