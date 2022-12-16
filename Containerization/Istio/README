@@ -1,0 +1,20 @@
+# isio sidecar debug
+k -n tp exec -it istio-ingressgateway-76cfc7457f-8cx4p -c istio-proxy -- sh -c 'curl -k -X POST localhost:15000/logging?rbac=debug'
+
+k logs -f istio-ingressgateway-76cfc7457f-8cx4p -n istio-system --tail 50
+
+istioctl dashboard envoy <pod name>
+
+oc port-forward <pod name> 15000
+
+# istio cni debug
+istioctl -n istio-system proxy-config log istio-ingressgateway-76cfc7457f-8cx4p --level=debug
+
+k logs -f istio-ingressgateway-76cfc7457f-8cx4p -n istio-system --tail 50
+
+k edit cm istio-cni-config -n istio-system
+
+kubectl rollout restart ds istio-cni-node -n istio-system
+
+
+# The default log level for the CNI plugin is info. To get more detailed log output, you can change the level by editing the values.cni.logLevel installation option and restarting the CNI DaemonSet pod.
