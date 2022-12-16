@@ -29,6 +29,10 @@ spec:
             host: secret-list-web
             subset: v1
           headers:
+            # 当使用JAVA GateWay对外开放，并启用https协议时，gateway再次与内部其它服务交互时，会沿用传入的header头协议https，导致 not an SSL/TLS record 错误，此时可以使用下面的方法修改为http。
+            request:
+              set:
+                x-forwarded-proto: http
             response:
               remove:
                 - x-powered-by
