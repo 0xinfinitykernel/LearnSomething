@@ -10,7 +10,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: dev-user-full-access
-  namespace: default             # 需要访问多个命名空间且各自命名空间内权限不同时,修改Role命令空间。
+  namespace: ambassador             # 需要访问多个命名空间且各自命名空间内权限不同时,修改Role命令空间。
 rules:
 - apiGroups:
   - ""
@@ -74,7 +74,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: dev-user-view
-  namespace: default             # 需要访问多个命名空间且各自命名空间内权限不同时,修改RoleBinding命令空间。
+  namespace: ambassador             # 需要访问多个命名空间且各自命名空间内权限不同时,修改RoleBinding命令空间。
 subjects:
 - kind: ServiceAccount
   name: dev-user
