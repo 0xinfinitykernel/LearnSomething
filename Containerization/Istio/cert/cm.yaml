@@ -5,5 +5,5 @@ metadata:
   name: alidns-secret
   namespace: cert-manager
 data:
-  access-key: TFRBSTV0Rmp2N2JNaXh6THprWjZyWU5Q
-  secret-key: dEVwMXBPRzNTRk1UdWQwTjdIbnY0dGVsT29YMnA5
+  access-key: TFRBSTV0Rmp2N2JNaXh6THprWjZyWU1Q
+  secret-key: dEVwMXBPRzNTRk1UdWQwTjdIbnY0dGVsT29YMnA1
