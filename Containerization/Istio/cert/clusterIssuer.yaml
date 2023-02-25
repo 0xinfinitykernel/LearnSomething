@@ -1,0 +1,28 @@
+# https://github.com/pragkent/alidns-webhook
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    # 改为自己得邮箱
+    email: certmaster@cewaycloud.com
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+    - dns01:
+        webhook:
+          #和上面安装时保持一致
+          groupName: acme.yourcompany.com
+          solverName: alidns
+          config:
+            # 这个参数标识服务器所在地，经过测试不填写，或者随便填写没有影响
+            region: "beijing"
+            accessKeySecretRef:
+              # 引用刚才创建得配置文件，注意文件名称和key名称是否对应
+              name: alidns-secret
+              key: access-key
+            secretKeySecretRef:
+              name: alidns-secret
+              key: secret-key
