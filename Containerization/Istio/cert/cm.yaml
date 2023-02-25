@@ -1,0 +1,9 @@
+# kubectl -n cert-manager create secret generic alidns-secret --from-literal="access-key=LTAI5tFjv7bMixzLzkZ6rYNP" --from-literal="secret-key=tEp1pOG3SFMTud0N7Hnv4telOoX2p9"
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alidns-secret
+  namespace: cert-manager
+data:
+  access-key: TFRBSTV0Rmp2N2JNaXh6THprWjZyWU1Q
+  secret-key: dEVwMXBPRzNTRk1UdWQwTjdIbnY0dGVsT29YMnA1
