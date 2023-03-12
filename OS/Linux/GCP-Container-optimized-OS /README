@@ -1,0 +1,10 @@
+# Container-optimized-OS 自定义程序运行方法
+
+# 重载获取读写权限
+sudo mount -o remount,rw -o exec /tmp
+
+# 后台运行
+nohup ./test > chat.log 2>&1 &
+
+# iptables 允许端口流量
+sudo iptables -w -A INPUT -p tcp --dport 443 -j ACCEPT
