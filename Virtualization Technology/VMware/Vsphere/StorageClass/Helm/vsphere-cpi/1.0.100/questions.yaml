@@ -35,7 +35,7 @@ questions:
 
   - variable: vCenter.credentialsSecret.name
     label: Credential's Secret Name
-    description: Name of the secret with the vSphere credentials (Will not be visible in the API. More info in the README)
+    description: Name of the secret with the vSphere credentials (Will not be visible in the API. More info in the README.md)
     default: "vsphere-cpi-creds"
     type: string
     group: Configuration

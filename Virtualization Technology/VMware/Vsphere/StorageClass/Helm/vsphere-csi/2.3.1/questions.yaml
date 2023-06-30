@@ -30,7 +30,7 @@ questions:
 
   - variable: vCenter.configSecret.name
     label: CSI vSphere Config Secret Name
-    description: Name of the Secret that contains a CSI vSphere config and credentials (Will not be visible in the API. More info in the README)
+    description: Name of the Secret that contains a CSI vSphere config and credentials (Will not be visible in the API. More info in the README.md)
     type: string
     group: vCenter Configuration
     show_if: "vCenter.configSecret.generate=false"
