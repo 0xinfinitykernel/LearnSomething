@@ -94,5 +94,3 @@ sudo make install -j$(nproc)
 sudo update-grub
 sudo reboot
 ```
-
-sudo apt-get dist-upgrade -y
