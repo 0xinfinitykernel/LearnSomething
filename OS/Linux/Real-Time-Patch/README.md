@@ -20,7 +20,7 @@ cd linux-5.15.119
 
 # 安装补丁
 ```
-patch -p1 < ../patch-5.15.113-rt64.patch
+patch -p1 < ../patch-5.15.119-rt65.patch
 ```
 
 # 复制系统当前内核的.config文件
@@ -94,3 +94,5 @@ sudo make install -j$(nproc)
 sudo update-grub
 sudo reboot
 ```
+
+sudo apt-get dist-upgrade -y
