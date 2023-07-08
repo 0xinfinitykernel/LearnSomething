@@ -2,32 +2,37 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"github.com/natefinch/lumberjack"
 	"github.com/shirou/gopsutil/net"
 	"github.com/shirou/gopsutil/process"
 	"golang.org/x/sync/semaphore"
+	"log"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
-// IOCounters defines the data structure for I/O counters
+// IOCounters 定义 I/O 计数器的数据结构
 type IOCounters struct {
 	ReadCount  uint64
 	WriteCount uint64
 }
 
-// ProcInfo defines the data structure for process information
+// ProcInfo 定义进程信息的数据结构
 type ProcInfo struct {
 	Name    string
 	Cmdline string
 }
 
-// LogMessage defines the data structure for log message
+// LogMessage 定义日志消息的数据结构
 type LogMessage struct {
-	Timestamp  string
+	Timestamp  time.Time
 	PID        int32
 	Name       string
 	Cmdline    string
@@ -40,6 +45,9 @@ type LogMessage struct {
 // Create a cache for storing process information
 var procInfoCache = make(map[int32]*ProcInfo)
 var cacheMutex sync.RWMutex
+
+// Process name filter
+var processNameFilter string
 
 // Create an object pool for storing process information
 var procInfoPool = sync.Pool{
@@ -93,8 +101,7 @@ func getIOCounters(pid int32) (*IOCounters, error) {
 // Refresh the process information cache
 func refreshProcInfoCache() {
 	pids, _ := process.Pids()
-	cacheMutex.Lock()
-	defer cacheMutex.Unlock()
+	newCache := make(map[int32]*ProcInfo)
 	for _, pid := range pids {
 		proc, err := process.NewProcess(pid)
 		if err != nil {
@@ -106,34 +113,38 @@ func refreshProcInfoCache() {
 		info.Name = name
 		cmdline, _ := proc.Cmdline()
 		info.Cmdline = cmdline
-		procInfoCache[pid] = info
+		newCache[pid] = info
 	}
+	cacheMutex.Lock()
+	procInfoCache = newCache
+	cacheMutex.Unlock()
 }
 
 // Log writer goroutine
-func logWriter() {
+func logWriter(logger *log.Logger, done chan struct{}) {
 	for msg := range logChan {
-		fmt.Printf("Timestamp: %s\n", msg.Timestamp)
-		fmt.Printf("PID: %d\n", msg.PID)
-		fmt.Printf("Name: %s\n", msg.Name)
-		fmt.Printf("Cmdline: %s\n", msg.Cmdline)
-		fmt.Printf("CPU: %.6f%%\n", msg.CPUPercent)
-		fmt.Printf("Mem: %.6f%%\n", msg.MemPercent)
+		logger.Printf("Timestamp: %s\n", msg.Timestamp.Format(time.RFC3339))
+		logger.Printf("PID: %d\n", msg.PID)
+		logger.Printf("Name: %s\n", msg.Name)
+		logger.Printf("Cmdline: %s\n", msg.Cmdline)
+		logger.Printf("CPU: %.6f%%\n", msg.CPUPercent)
+		logger.Printf("Mem: %.6f%%\n", msg.MemPercent)
 
 		if msg.IOCounters != nil {
-			fmt.Printf("IO: %+v\n", msg.IOCounters)
+			logger.Printf("IO: %+v\n", msg.IOCounters)
 		} else {
-			fmt.Println("IO: <nil>, Please confirm if you are running the code with root privileges.")
+			logger.Println("IO: <nil>, Please confirm if you are running the code with root privileges.")
 		}
 
 		for _, netStat := range msg.NetIO {
-			fmt.Printf("Interface: %v\n", netStat.Name)
-			fmt.Printf("Bytes Sent: %v\n", netStat.BytesSent)
-			fmt.Printf("Bytes Recv: %v\n", netStat.BytesRecv)
+			logger.Printf("Interface: %v\n", netStat.Name)
+			logger.Printf("Bytes Sent: %v\n", netStat.BytesSent)
+			logger.Printf("Bytes Recv: %v\n", netStat.BytesRecv)
 		}
 
-		fmt.Println("----------Robotics Monitor------------")
+		logger.Println("----------Robotics Monitor------------")
 	}
+	done <- struct{}{}
 }
 
 // Print process and network information
@@ -154,6 +165,25 @@ func printProcessAndNetInfo(sem *semaphore.Weighted, pid int32) {
 		return
 	}
 
+	// Check if process name matches the filter
+	processNames := strings.Split(processNameFilter, ",")
+	match := false
+	if len(processNames) == 1 && processNames[0] == "" {
+		// If no filter is set, match all processes
+		match = true
+	} else {
+		for _, name := range processNames {
+			if strings.Contains(info.Name, name) {
+				match = true
+				break
+			}
+		}
+	}
+	if !match {
+		sem.Release(1) // Release semaphore
+		return
+	}
+
 	cpuPercent, _ := proc.CPUPercent()
 	memPercent, _ := proc.MemoryPercent()
 	ioCounters, _ := getIOCounters(pid)
@@ -161,7 +191,7 @@ func printProcessAndNetInfo(sem *semaphore.Weighted, pid int32) {
 
 	// Send log message to the log writer
 	logChan <- LogMessage{
-		Timestamp:  time.Now().Format(time.RFC3339),
+		Timestamp:  time.Now(),
 		PID:        pid,
 		Name:       info.Name,
 		Cmdline:    info.Cmdline,
@@ -179,7 +209,43 @@ func printProcessAndNetInfo(sem *semaphore.Weighted, pid int32) {
 }
 
 func main() {
-	sem := semaphore.NewWeighted(100) // Create a semaphore to limit concurrency
+	// Get the log file path from the command line arguments
+	var logFilePath string
+	flag.StringVar(&logFilePath, "log", "", "Log file path")
+	flag.StringVar(&processNameFilter, "proc", "", "Process name filter (comma separated)")
+	flag.Parse()
+
+	sem := semaphore.NewWeighted(1000) // Create a semaphore to limit concurrency
+
+	logger := log.New(os.Stdout, "", log.LstdFlags) // Default to standard output
+
+	if logFilePath != "" {
+		logger = log.New(&lumberjack.Logger{
+			Filename:   logFilePath,
+			MaxSize:    2 * 1024, // megabytes
+			MaxAge:     2,        // days
+			MaxBackups: 2,        // The maximum number of old log files to retain
+		}, "", log.LstdFlags)
+	}
+
+	done := make(chan struct{})
+	defer func() {
+		close(logChan)
+		<-done // Wait for log writing to complete
+		if logFilePath != "" {
+			if lumberjackLogger, ok := logger.Writer().(*lumberjack.Logger); ok {
+				_ = lumberjackLogger.Close()
+			}
+		}
+	}()
+
+	go func() {
+		// Capture the interrupt signal to exit gracefully
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+		<-signals
+		done <- struct{}{}
+	}()
 
 	go func() {
 		for {
@@ -189,16 +255,21 @@ func main() {
 	}()
 
 	// Start the log writer goroutine
-	go logWriter()
+	go logWriter(logger, done)
 
 	for {
-		pids, _ := process.Pids()
-		for _, pid := range pids {
-			if err := sem.Acquire(context.Background(), 1); err == nil {
-				go printProcessAndNetInfo(sem, pid)
+		select {
+		case <-done:
+			return
+		default:
+			pids, _ := process.Pids()
+			for _, pid := range pids {
+				if err := sem.Acquire(context.Background(), 1); err == nil {
+					go printProcessAndNetInfo(sem, pid)
+				}
 			}
-		}
 
-		time.Sleep(1 * time.Second) // You can modify this time to change the printing frequency
+			time.Sleep(1 * time.Second) // You can modify this time to change the printing frequency
+		}
 	}
 }
