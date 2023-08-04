@@ -15,7 +15,8 @@ mamba install pocl
 ```
 ### Fix some problems
 ```
-#make install 或二进制安装 只是安装库文件，不会复制icd到标准目录。如果导致clGetPlatform时获取不到平台时。手动拷贝：
+## 二进制安装的方式,多了SPIR，SPIR-V，如果不想自行再次编译的,推荐这种安装方式.
+## make install 或二进制安装 只是安装库文件，不会复制icd到标准目录。如果导致clGetPlatform时获取不到平台时。手动拷贝：
 sudo mkdir -p /etc/OpenCL/vendors
 sudo cp /usr/local/etc/OpenCL/vendors/pocl.icd /etc/OpenCL/vendors/
 ```
