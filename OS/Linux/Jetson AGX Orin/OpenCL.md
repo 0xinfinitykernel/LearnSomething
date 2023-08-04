@@ -22,7 +22,8 @@ sudo cp /usr/local/etc/OpenCL/vendors/pocl.icd /etc/OpenCL/vendors/
 
 More information [GitHub](https://github.com/pocl/pocl)
 
-# Source Code Install (没有编译成功过)
+# Source Code Install
+use llvm 10 compile pocl 3.0, if higher pocl version you should be higher llvm version
 ```
 sudo apt-get install clang
 
@@ -67,11 +68,11 @@ sudo cp ~/work/ocl-icd-2.3.1/khronos-headers/* /usr/include
 ## pocl
 
 ### 下载
-pocl_4.0: http://portablecl.org/download.html
+pocl_3.0: http://portablecl.org/download.html
 
 ### 解压
 ```
-tar -zxvf pocl-4.0.tar.gz
+tar -zxvf pocl-3.0.tar.gz
 ```
 
 ### 编译
@@ -82,7 +83,7 @@ sudo apt-get install valgrind
 sudo apt-get install gcc patch hwloc cmake git pkg-config make clinfo
 
 ```
-* 在解压的目录pocl-4.0中
+* 在解压的目录pocl-3.0中
 ```
 mkdir build
 cd build
