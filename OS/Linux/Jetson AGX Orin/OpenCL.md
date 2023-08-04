@@ -24,6 +24,7 @@ More information [GitHub](https://github.com/pocl/pocl)
 
 # Source Code Install
 use llvm 10 compile pocl 3.0, if higher pocl version you should be higher llvm version
+pocl 4.0 use llvm 15.0.7 build
 ```
 sudo apt-get install clang
 
