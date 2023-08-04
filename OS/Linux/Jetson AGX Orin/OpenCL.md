@@ -27,7 +27,7 @@ use llvm 10 compile pocl 3.0, if higher pocl version you should be higher llvm v
 ```
 sudo apt-get install clang
 
-## 执行后这里自动安装的版本是clang10+llvm10，但是不会安装libclang-cpp-dev,需要自己安装对应的包（注意和自己安装的clang+vllm版本匹配）
+## 执行后这里自动安装的版本是clang10+llvm10，但是不会安装libclang-cpp-dev,需要自己安装对应的包（dpkg -l | grep 看一下,注意和自己安装的clang+vllm版本匹配）
 
 sudo apt-get install libclang-cpp10-dev 
 
