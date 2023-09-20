@@ -82,14 +82,19 @@ To get more information about used devices use
 # multipath -v3
 ```
 
+### physical volume initialized
+```
+# mkfs.ext4 /dev/mapper/fc-pool
+```
+
 ### Create PV
 ```
-pvcreate /dev/mapper/fc-pool
+# pvcreate /dev/mapper/fc-pool
 ```
 
 ### Create VG
 ```
-vgcreate pve-san /dev/mapper/fc-pool
+# vgcreate pve-san /dev/mapper/fc-pool
 ```
 ### Create Cluster Shared Storage
 ```
