@@ -3,6 +3,20 @@ dd if=/dev/mtd8 of=/tmp/art_bak bs=128k count=1 2>/dev/null
 echo "COUNTRY:US" |dd of=/tmp/art_bak bs=1 count=10 seek=$((0x90)) conv=notrunc 2>/dev/null
 mtd write /tmp/art_bak /dev/mtd8 2>/dev/null
 ----------------------------------------------------------------
+
+# GL.Net backup & restore
+## backup
+
+crontab -e
+0 0 * * 1 tar -czvf /tmp/mountd/disk1_part1/backup/overlay-$(date +%Y-%m-%d_%H).tar.gz /overlay
+0 2 * * * find /tmp/mountd/disk1_part1/backup/ -mtime +30 -exec rm -rf {} \;
+
+## restore
+rm -rvf /overlay/*
+cd /
+tar -xzvf /tmp/mountd/disk1_part1/backup/overlay_backup_******.tar.gz
+reboot
+
 root@GL-AXT1800:~# vtysh
 ls
 Hello, this is FRRouting (version 7.5).
