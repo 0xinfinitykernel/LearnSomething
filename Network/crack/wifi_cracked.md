@@ -41,9 +41,13 @@ Kali Linux下载地址：[https://www.kali.org/get-kali/](https://www.kali.org/g
 
 #### 4\. 抓取握手包
 
-修改并执行以下的命令，以扫描到的“Play\_Lab”热点为例：
+修改并执行以下的命令(根据实际需要选一个)，以扫描到的“Play\_Lab”热点为例：
 
-    airodump-ng -c 1 --bssid 1E:FE:E7:D4:F7:1C -w /home/kali/Desktop/play_lab  wlan0
+    airodump-ng -c 1 --bssid 1E:FE:E7:D4:F7:1C -w /home/kali/Desktop/play_lab  wlan0 
+
+    airodump-ng -w freedom -c 11 --bssid 9C:2E:A1:20:65:BC wlan0mon -ignore-nefative-oneaa (ivs)
+
+    airodump-ng -w test -c 11 --bssid  C0:F4:E6:CD:03:EC wlan0mon -aa --output-format pcap (指定pcap格式)
 
 `-c` WiFi 的 CH
 
@@ -73,7 +77,12 @@ Kali Linux下载地址：[https://www.kali.org/get-kali/](https://www.kali.org/g
 
 > 由于 Hashcat 需要使用 GPU 才能高效破解密码，所以需要确保你的 Kali Linux 可以正常驱动显卡，或者直接在 Windows 电脑上下载 [Hashcat](https://github.com/hashcat/hashcat/releases) 执行操作也是可以的。
 
-首先需要通过 [Hashcat](https://hashcat.net/cap2hashcat/index.pl) 网站将 cap 文件转换为 hc22000 格式，然后修改并执行下面的命令：
+首先需要通过 [Hashcat](https://hashcat.net/cap2hashcat/index.pl) 网站将 cap 文件转换为 hc22000 格式, 也可以通过下面这条命令转换格式.
+```
+hcxpcapngtool test.pcap -o test.hc22000
+```
+
+然后修改并执行下面的命令：
 
     hashcat -m 22000 xxx.hc22000 password.txt
 
