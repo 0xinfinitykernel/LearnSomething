@@ -21,7 +21,7 @@ services:
       # 为什么 Docker 自动创建是 root:root？
       # 容器启动的时候 user: 1000:1000 指定的用户还没生效前，就先用了 root 来创建了目录。
       # Docker 运行时如果挂载路径不存在，会用 当前默认用户（通常是 root） 来创建目录！
-      #share your x11 socket and permissions to the container
+      # share your x11 socket and permissions to the container
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /etc/group:/etc/group:ro
       - /etc/passwd:/etc/passwd:ro
@@ -30,7 +30,7 @@ services:
       - /etc/sudoers.d:/etc/sudoers.d:ro
       - ${HOME_DIR}:${HOME_DIR}:rw #Share your home directory with write permissions. Make sure the mount path exactly matches the path on the host machine, otherwise you may encounter permission issues preventing log files from being written.
     working_dir: ${HOME_DIR}
-    #command: /bin/bash -c "source /opt/ros/humble/setup.bash && bash"
+    # command: /bin/bash -c "source /opt/ros/humble/setup.bash && bash"
     network_mode: host
     command:
       - /bin/bash
