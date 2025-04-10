@@ -18,9 +18,10 @@ services:
       - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
     user: "${USER_ID}:${GROUP_ID}" #adapt as needed!
     volumes:
-      # 为什么 Docker 自动创建是 root:root？
-      # 容器启动的时候 user: 1000:1000 指定的用户还没生效前，就先用了 root 来创建了目录。
-      # Docker 运行时如果挂载路径不存在，会用 当前默认用户（通常是 root） 来创建目录！
+      # Why is the directory automatically created as root:root by Docker?
+      # When the container starts, the `user: 1000:1000` setting hasn’t taken effect yet,
+      # so Docker uses the default user (usually root) to create the directory first.
+      # If the mount path doesn't exist on the host, Docker will create it using the default user!
       # share your x11 socket and permissions to the container
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /etc/group:/etc/group:ro
