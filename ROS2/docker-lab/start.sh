@@ -45,6 +45,9 @@ else
 fi
 
 # Step 2: 启动 docker-compose
+echo "[*] 清理旧容器（如存在）..."
+docker-compose down
+
 echo "[*] 启动 Docker Compose..."
 docker-compose up -d
 

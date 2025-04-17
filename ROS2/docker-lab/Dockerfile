@@ -32,15 +32,20 @@ WORKDIR $ROS_WORKSPACE/src
 # 添加项目列表文件（你提前准备好）
 COPY projects.txt /tmp/projects.txt
 
-# 克隆所有项目（项目地址写在 projects.txt，自动注入用户名密码）
+# 项目地址写在 projects.txt，自动注入用户名密码。
+# 克隆所有项目（支持 @branch，默认 main）
 RUN set -e; \
     ENCODED_PASS=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${GIT_PASS}'))"); \
-    while IFS= read -r raw_url; do \
+    while IFS= read -r line || [ -n "$line" ]; do \
+      raw_url=$(echo "$line" | cut -d@ -f1); \
+      branch=$(echo "$line" | cut -s -d@ -f2); \
+      [ -z "$branch" ] && branch="main"; \
       proto=$(echo $raw_url | cut -d/ -f1); \
       host_and_path=$(echo $raw_url | cut -d/ -f3-); \
       full_url="${proto}//${GIT_USER}:${ENCODED_PASS}@${host_and_path}"; \
-      echo "⏬ Cloning $full_url ..."; \
-      git clone "$full_url"; \
+      repo_name=$(basename "$raw_url" .git); \
+      echo "⏬ Cloning $full_url (branch=$branch) ..."; \
+      git clone --branch "$branch" --single-branch "$full_url"; \
     done < /tmp/projects.txt
 
 # 安装每个项目的 install.sh（如果有）
