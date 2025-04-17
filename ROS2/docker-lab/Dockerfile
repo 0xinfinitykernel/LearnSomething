@@ -52,6 +52,17 @@ RUN set -e; \
       fi \
     done
 
+# 自动修复缺失宏定义
+#RUN find . \( -name "*.cpp" -o -name "*.h" \) -type f | xargs sed -i 's/LX_INT_2D_UNDISTORT_SCALE/LX_INT_3D_UNDISTORT_SCALE/g'
+# 自动修复缺失宏定义（仅当 SDK 中没有定义时才替换）
+RUN if grep -qr "LX_INT_2D_UNDISTORT_SCALE" /opt/Lanxin-MRDVS/include; then \
+      echo "✅ SDK defines LX_INT_2D_UNDISTORT_SCALE, no need to patch"; \
+    else \
+      echo "⚠️  LX_INT_2D_UNDISTORT_SCALE not found, patching to LX_INT_3D_UNDISTORT_SCALE"; \
+      find . \( -name "*.cpp" -o -name "*.h" \) -type f -print0 \
+        | xargs -0 --no-run-if-empty sed -i 's/LX_INT_2D_UNDISTORT_SCALE/LX_INT_3D_UNDISTORT_SCALE/g'; \
+    fi
+
 # 编译所有项目
 WORKDIR $ROS_WORKSPACE
 RUN bash -c "source /opt/ros/humble/setup.bash && colcon build"
