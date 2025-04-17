@@ -13,7 +13,7 @@ docker build -f ./Dockerfile -t ros2_multi_project_runtime \
   --build-arg GROUP_ID=${GROUP_ID} \
   --build-arg GIT_USER=${GIT_USER} \
   --build-arg GIT_PASS=${GIT_PASS} \
-  ..
+  .
 
 echo "[✓] 构建完成。"
 
