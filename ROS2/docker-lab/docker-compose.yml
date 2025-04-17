@@ -31,7 +31,7 @@ services:
       - /etc/sudoers.d:/etc/sudoers.d:ro
       - ${HOME_DIR}:${HOME_DIR}:rw #Share your home directory with write permissions. Make sure the mount path exactly matches the path on the host machine, otherwise you may encounter permission issues preventing log files from being written.
     working_dir: ${HOME_DIR}
-    # command: /bin/bash -c "source /opt/ros/humble/setup.bash && bash"
+    #command: /bin/bash -c "source /opt/ros/humble/setup.bash && bash"
     network_mode: host
     command:
       - /bin/bash
@@ -39,4 +39,3 @@ services:
       - |
         echo "source /home/parallels/ros_env2.sh"|| true && \
         exec rviz2
-
