@@ -42,8 +42,8 @@ cp .env.template .env
 将你要构建的 Git 仓库地址写入 `projects.txt`，一行一个，例如：
 
 ```
-http://192.168.0.108/yourteam/lx_camera_ros2.git
-http://192.168.0.108/yourteam/another_module.git
+http://192.168.0.108/yourteam/lx_camera_ros2.git@main
+http://192.168.0.108/yourteam/another_module.git@dev
 ```
 
 无需在 URL 中写入用户名和密码，系统会自动从 `.env` 注入。
