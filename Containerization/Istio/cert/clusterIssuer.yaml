@@ -6,14 +6,14 @@ metadata:
 spec:
   acme:
     # 改为自己得邮箱
-    email: certmaster@cewaycloud.com
+    email: certmaster@znkjfw.com
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-staging-account-key
     solvers:
     - dns01:
         webhook:
-          #和上面安装时保持一致
+          #和上面安装bundel时保持一致(https://raw.githubusercontent.com/pragkent/alidns-webhook/master/deploy/bundle.yaml)
           groupName: acme.yourcompany.com
           solverName: alidns
           config:

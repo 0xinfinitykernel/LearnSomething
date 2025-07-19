@@ -12,6 +12,9 @@ services:
     environment:
       - DISPLAY=${DISPLAY}
       - "QT_X11_NO_MITSHM=1" #fix some QT bugs
+      - LIBGL_ALWAYS_SOFTWARE=1 # In some ARM environments, force software rendering to prevent EGL/Ogre crashes
+      - GALLIUM_DRIVER=llvmpipe
+      - LP_NUM_THREADS=4
       - ROS_DOMAIN_ID=0
       - HOME=${HOME_DIR}
       - XDG_RUNTIME_DIR=/tmp/runtime-parallels
@@ -38,4 +41,6 @@ services:
       - -c
       - |
         echo "source /home/parallels/ros_env2.sh"|| true && \
+        ign gazebo & \
+        sleep 3 && \
         exec rviz2

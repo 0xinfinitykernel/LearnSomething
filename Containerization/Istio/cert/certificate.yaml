@@ -4,20 +4,20 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: cewaycloud-com-tls
-  # 指定证书生成到哪个工作空间，不指定也可以
-  # namespace: istio-system
+  name: znkjfw-com-tls
+  # 指定证书生成到哪个工作空间，不指定的话，默认istio去这个命名空间拿证书会拿不到。
+  namespace: istio-system
 spec:
   #生成后证书的配置文件名称
-  secretName: cewaycloud-com-tls
+  secretName: znkjfw-com-tls
   duration: 2160h # 90d
   renewBefore: 360h # 15d
   subject:
     organizations:
-    - Example Inc.
+    - ZN Inc.
   dnsNames:
-  - cewaycloud.com
-  - "*.cewaycloud.com"
+  - znkjfw.com
+  - "*.znkjfw.com"
   issuerRef:
     name: letsencrypt-staging
     kind: ClusterIssuer
