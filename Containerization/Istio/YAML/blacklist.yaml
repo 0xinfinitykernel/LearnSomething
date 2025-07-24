@@ -1,0 +1,531 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: ingressgateway-lua-smart-antibot
+  namespace: istio-system
+spec:
+  workloadSelector:
+    labels:
+      app: istio-ingressgateway
+  configPatches:
+  - applyTo: HTTP_FILTER
+    match:
+      context: GATEWAY
+      listener:
+        filterChain:
+          filter:
+            name: envoy.filters.network.http_connection_manager
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        name: envoy.filters.http.lua
+        typed_config:
+          '@type': type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+          inlineCode: |
+            -- 日志打印函数，支持 info、warn、err 级别
+            local function log(request_handle, level, msg)
+              if level == "info" then
+                request_handle:logInfo(msg)
+              elseif level == "warn" then
+                request_handle:logWarn(msg)
+              elseif level == "err" then
+                request_handle:logErr(msg)
+              end
+            end
+
+            -- 黑名单 IP，禁止访问
+            local blacklist = {
+              ["216.73.216.4"] = true,
+            }
+
+            -- 白名单 IP，绕过限制
+            local whitelist = {
+              ["127.0.0.1"] = true,
+            }
+
+            -- 自动封禁信息，结构：ip -> { banned_until=时间戳, ban_count=次数, last_ban_ts=时间戳 }
+            local auto_ban_list = {}
+
+            -- 滑动窗口请求计数，结构：key -> { bucket_timestamp -> count }
+            local sliding_window = {}
+
+            -- 配置参数
+            local WINDOW_SIZE_SEC = 5                  -- 滑动窗口大小，单位秒
+            local BUCKET_SIZE_MS = 100                 -- 桶大小，单位毫秒
+            local BUCKETS_COUNT = WINDOW_SIZE_SEC * 1000 / BUCKET_SIZE_MS
+            local DEFAULT_LIMIT = 50                     -- 未认证用户默认限流阈值
+            local AUTH_LIMIT = 2000                   -- 认证用户限流阈值
+            local PATH_LIMITS = {                       -- 特殊路径限流阈值
+              ["/media/commit/"] = 3000,
+              ["/ak/zn-cloud-wcs/media/commit/"] = 3000,
+              -- Git 拉代码及推送路径（避免触发限流）
+              ["/ak/"] = 10000,
+              ["/.git/"] = 10000,
+              ["/git/"] = 10000,
+              ["/repo/"] = 10000,
+              ["/objects/"] = 10000,
+              ["/info/refs"] = 10000,
+              ["/git-upload-pack"] = 10000,
+              ["/git-receive-pack"] = 10000,
+              ["/HEAD"] = 10000,
+              ["/api/internal/hook/pre-receive/"] = 10000,
+              ["/api/internal/hook/post-receive/"] = 10000,
+
+              -- 长轮询相关
+              ["/user/events"] = 5000,
+            }
+            local INITIAL_BAN_TIME = 60                 -- 初始封禁时长，秒
+            local MAX_BAN_TIME = 3600                   -- 最大封禁时长，秒
+            local BAN_COUNT_DECAY_TIME = 3600           -- ban_count 衰减时间，秒
+            local CLEAN_INTERVAL = 60                   -- 清理间隔，秒
+
+            local last_clean_time = 0                   -- 上次清理时间戳
+
+            -- 获取当前时间，单位毫秒
+            local function now_ms(request_handle)
+              return math.floor(request_handle:timestamp() / 1000000)
+            end
+
+            -- 获取当前时间，单位秒
+            local function now_sec(request_handle)
+              return math.floor(request_handle:timestamp() / 1000000000)
+            end
+
+            -- IPv4 格式校验，严格四段数字且 0-255
+            local function is_valid_ipv4(ip)
+              if not ip then return false end
+              local o1, o2, o3, o4 = ip:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+              o1, o2, o3, o4 = tonumber(o1), tonumber(o2), tonumber(o3), tonumber(o4)
+              if o1 and o2 and o3 and o4 then
+                return o1 >= 0 and o1 <= 255 and o2 >= 0 and o2 <= 255 and o3 >= 0 and o3 <= 255 and o4 >= 0 and o4 <= 255
+              end
+              return false
+            end
+
+            -- 判断是否为私有内网 IP
+            local function is_private_ip(ip)
+              if not is_valid_ipv4(ip) then return false end
+              local o1, o2 = ip:match("^(%d+)%.(%d+)%.%d+%.%d+$")
+              o1, o2 = tonumber(o1), tonumber(o2)
+              if not o1 or not o2 then return false end
+              return o1 == 10 or (o1 == 172 and o2 >= 16 and o2 <= 31) or (o1 == 192 and o2 == 168)
+            end
+
+            -- 获取客户端真实 IP，优先从 x-forwarded-for 中取第一个合法且非内网的 IP，否则取 downstream IP
+            local function get_client_ip(request_handle, headers)
+              local xff = headers:get("x-forwarded-for")
+              if xff then
+                for ip in xff:gmatch("([^,%s]+)") do
+                  if is_valid_ipv4(ip) and not is_private_ip(ip) then
+                    return ip
+                  end
+                end
+              end
+              -- fallback downstream IP
+              local remote = request_handle:streamInfo():downstreamRemoteAddress()
+              if remote then
+                local ip_only = remote:match("([^:]+)")
+                if ip_only and is_valid_ipv4(ip_only) then return ip_only end
+              end
+              return "unknown"
+            end
+
+            -- 判断是否为认证用户（检测 Authorization、cookie 以及 X-Auth-Token）
+            local function is_authenticated(headers)
+              local auth = headers:get("Authorization")
+              if auth and auth ~= "" then return true end
+
+              local cookie = headers:get("cookie") or ""
+              if cookie:find("sessionid=") or cookie:find("jwt=") or cookie:find("i_like_gitea=") then
+                return true
+              end
+
+              local xauth = headers:get("X-Auth-Token")
+              if xauth and xauth ~= "" then return true end
+
+              return false
+            end
+
+            -- 根据路径和认证状态获取限流阈值
+            local function get_limit(path, authenticated)
+              for prefix, limit in pairs(PATH_LIMITS) do
+                if path:sub(1, #prefix) == prefix then
+                  return limit
+                end
+              end
+              if authenticated then return AUTH_LIMIT end
+              return DEFAULT_LIMIT
+            end
+
+            -- 清理滑动窗口中过期的桶
+            local function update_sliding_window(key, current_ms)
+              sliding_window[key] = sliding_window[key] or {}
+              for ts_bucket in pairs(sliding_window[key]) do
+                if ts_bucket <= current_ms - WINDOW_SIZE_SEC * 1000 then
+                  sliding_window[key][ts_bucket] = nil
+                end
+              end
+            end
+
+            -- 获取当前滑动窗口内请求总数
+            local function get_count(request_handle, key)
+              local current_ms = now_ms(request_handle)
+              update_sliding_window(key, current_ms)
+              local sum = 0
+              for _, count in pairs(sliding_window[key] or {}) do
+                sum = sum + count
+              end
+              return sum
+            end
+
+            -- 增加请求计数到当前桶
+            local function add_request(request_handle, key)
+              local current_ms = now_ms(request_handle)
+              local bucket = current_ms - (current_ms % BUCKET_SIZE_MS)
+              sliding_window[key] = sliding_window[key] or {}
+              sliding_window[key][bucket] = (sliding_window[key][bucket] or 0) + 1
+            end
+
+            -- 计算封禁时长（指数增长，封禁次数越多时间越长，最高不超过 MAX_BAN_TIME）
+            local function calculate_ban_time(ban_count)
+              local ban_time = INITIAL_BAN_TIME * (2 ^ (ban_count - 1))
+              if ban_time > MAX_BAN_TIME then
+                ban_time = MAX_BAN_TIME
+              end
+              return ban_time
+            end
+
+            -- 检查 IP 是否处于封禁状态，并自动解封过期 IP
+            local function check_auto_ban(request_handle, ip)
+              local current_ts = now_sec(request_handle)
+              local ban_info = auto_ban_list[ip]
+              if ban_info then
+                if current_ts <= ban_info.banned_until then
+                  -- 封禁未过期，仍然封禁中
+                  return true
+                else
+                  -- 封禁过期，检查 ban_count 是否衰减，若衰减则清除封禁信息
+                  if current_ts - (ban_info.last_ban_ts or 0) > BAN_COUNT_DECAY_TIME then
+                    auto_ban_list[ip] = nil
+                    log(request_handle, "info", "Ban info expired and cleared: " .. ip)
+                    return false
+                  end
+                  -- 否则自动解封，但保留 ban_count，方便后续动态封禁
+                  auto_ban_list[ip] = nil
+                  log(request_handle, "info", "Auto unban IP: " .. ip)
+                end
+              end
+              return false
+            end
+
+            -- 自动封禁某 IP，ban_count 递增，封禁时长指数增长
+            local function auto_ban(request_handle, ip)
+              local current_ts = now_sec(request_handle)
+              local ban_info = auto_ban_list[ip] or { ban_count = 0 }
+              ban_info.ban_count = ban_info.ban_count + 1
+              ban_info.last_ban_ts = current_ts
+              local ban_duration = calculate_ban_time(ban_info.ban_count)
+              ban_info.banned_until = current_ts + ban_duration
+              auto_ban_list[ip] = ban_info
+
+              log(request_handle, "warn", string.format("Auto banned IP: %s, count: %d, duration: %ds", ip, ban_info.ban_count, ban_duration))
+            end
+
+            -- 定时清理滑动窗口和自动封禁过期数据，避免内存无限增长
+            local function periodic_clean(request_handle)
+              local current_ts = now_sec(request_handle)
+              if current_ts - last_clean_time < CLEAN_INTERVAL then
+                return
+              end
+              last_clean_time = current_ts
+
+              local current_ms = now_ms(request_handle)
+              -- 清理滑动窗口中过期桶
+              for key, buckets in pairs(sliding_window) do
+                for ts_bucket in pairs(buckets) do
+                  if ts_bucket <= current_ms - WINDOW_SIZE_SEC * 1000 then
+                    buckets[ts_bucket] = nil
+                  end
+                end
+                if next(buckets) == nil then
+                  sliding_window[key] = nil
+                end
+              end
+
+              -- 清理过期封禁记录，且 ban_count 衰减时间超过阈值的 IP
+              for ip, ban_info in pairs(auto_ban_list) do
+                if ban_info.banned_until < current_ts and current_ts - (ban_info.last_ban_ts or 0) > BAN_COUNT_DECAY_TIME then
+                  auto_ban_list[ip] = nil
+                  log(request_handle, "info", "Cleaned expired ban info for IP: " .. ip)
+                end
+              end
+
+              log(request_handle, "info", "Periodic cleanup done")
+            end
+
+            -- 生成精美封禁页面 HTML（带 IP，完整效果）
+            local function render_block_page(client_ip)
+              return [[
+            <html>
+            <head>
+              <style>
+                html, body {
+                  margin: 0; padding: 0; height: 100%; overflow: hidden;
+                  background: linear-gradient(135deg, #131f3c, #22304e, #405a7a);
+                  animation: bgPulse 40s ease-in-out infinite;
+                  color: #c0dfff;
+                  font-family: 'JetBrains Mono', 'Segoe UI Mono', 'Consolas', monospace;
+                  user-select: none;
+                  position: relative;
+                }
+                @keyframes bgPulse {
+                  0% {
+                    background: linear-gradient(135deg, #131f3c, #22304e, #405a7a);
+                  }
+                  50% {
+                    background: linear-gradient(135deg, #1c2a4d, #334b7a, #6a8cbc);
+                  }
+                  100% {
+                    background: linear-gradient(135deg, #131f3c, #22304e, #405a7a);
+                  }
+                }
+                #message {
+                  position: absolute;
+                  top: 30%;
+                  width: 100%;
+                  text-align: center;
+                  z-index: 20;
+                  color: #c0dfff;
+                  font-weight: 600;
+                  line-height: 1.5;
+                  letter-spacing: 0.03em;
+                }
+                #message p {
+                  margin: 10px 0;
+                  font-size: 27px;
+                  text-shadow: 0 0 6px rgba(192, 223, 255, 0.7);
+                  display: flex;
+                  justify-content: center;
+                  align-items: center;
+                  gap: 12px;
+                }
+                #access-denied {
+                  font-size: 40px;
+                  color: #a8c8ff;
+                  margin-top: 18px;
+                  font-weight: 700;
+                  letter-spacing: 3px;
+                  text-shadow: 0 0 10px rgba(168, 200, 255, 0.85);
+                  min-height: 50px;
+                }
+                #client-info {
+                  position: fixed;
+                  left: 50%;
+                  top: 55%;
+                  transform: translateX(-50%);
+                  max-width: 90vw;
+                  padding: 20px 30px;
+                  background-color: rgba(20, 30, 50, 0.85);
+                  border: 2px solid #4a90e2;
+                  border-radius: 8px;
+                  box-shadow: 0 0 12px #4a90e2;
+                  color: #8db9ff;
+                  letter-spacing: 0.02em;
+                  user-select: text;
+                  font-family: 'JetBrains Mono', 'Consolas', monospace;
+                  font-weight: 600;
+                  text-align: center;
+                  z-index: 30;
+                  width: auto;
+                }
+                #client-info p {
+                  margin: 4px 0;
+                  text-shadow: 0 0 4px rgba(141, 185, 255, 0.8);
+                }
+                .snowflake {
+                  position: fixed;
+                  top: -10px;
+                  color: #cceeff;
+                  font-size: 1em;
+                  user-select: none;
+                  z-index: 9999;
+                  animation: fall linear infinite;
+                }
+                @keyframes fall {
+                  0% {
+                    transform: translateY(0) rotate(0deg);
+                    opacity: 1;
+                  }
+                  100% {
+                    transform: translateY(100vh) rotate(360deg);
+                    opacity: 0;
+                  }
+                }
+                /* SVG笔画动画 */
+                .tech-ban-icon svg circle,
+                .tech-ban-icon svg line {
+                  stroke-dasharray: 138.23;
+                  stroke-dashoffset: 138.23;
+                  animation-fill-mode: forwards;
+                }
+                .tech-ban-icon svg circle {
+                  animation: drawCircle 2s forwards;
+                }
+                .tech-ban-icon svg line {
+                  stroke-dasharray: 25.46;
+                  stroke-dashoffset: 25.46;
+                  animation: drawLine 2s forwards 2s;
+                }
+                @keyframes drawCircle {
+                  to { stroke-dashoffset: 0; }
+                }
+                @keyframes drawLine {
+                  to { stroke-dashoffset: 0; }
+                }
+              </style>
+            </head>
+            <body>
+              <div id="message">
+                <p>
+                  <span class="tech-ban-icon">
+                    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;">
+                      <circle cx="24" cy="24" r="22" stroke="#7dafff" stroke-width="3" />
+                      <line x1="15" y1="15" x2="33" y2="33" stroke="#7dafff" stroke-width="3" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  访问被防火墙拦截
+                  <span class="tech-ban-icon">
+                    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;">
+                      <circle cx="24" cy="24" r="22" stroke="#7dafff" stroke-width="3" />
+                      <line x1="15" y1="15" x2="33" y2="33" stroke="#7dafff" stroke-width="3" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                </p>
+                <p style="height: 1em;">&nbsp;</p>
+                <p id="access-denied"></p>
+              </div>
+              <div id="client-info">
+                <p>IP地址: ]] .. client_ip .. [[</p>
+                <p id="os-info">操作系统: 获取中...</p>
+                <p id="browser-info">浏览器: 获取中...</p>
+                <p id="fpid">FingerprintJS ID: 获取中...</p>
+              </div>
+              <script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
+              <script>
+                FingerprintJS.load().then(fp => {
+                  fp.get().then(result => {
+                    const visitorId = result.visitorId;
+                    document.cookie = "fp_visitor_id=" + visitorId + "; path=/";
+                    document.getElementById("fpid").textContent = "FingerprintJS ID: " + visitorId;
+                  });
+                });
+
+                const ua = navigator.userAgent;
+                const osInfoElem = document.getElementById('os-info');
+                const browserInfoElem = document.getElementById('browser-info');
+
+                function parseOS(ua) {
+                  if (/Windows NT 10.0/.test(ua)) {
+                    if (/Windows NT 10.0; Win64; x64/.test(ua)) {
+                      return "Windows 11 / 10";
+                    }
+                    return "Windows 10";
+                  }
+                  if (/Windows NT 6\.3/.test(ua)) return "Windows 8.1";
+                  if (/Windows NT 6\.2/.test(ua)) return "Windows 8";
+                  if (/Windows NT 6\.1/.test(ua)) return "Windows 7";
+                  if (/Macintosh/.test(ua)) return "Mac OS";
+                  if (/Android/.test(ua)) return "Android";
+                  if (/iPhone|iPad|iPod/.test(ua)) return "iOS";
+                  if (/Linux/.test(ua)) return "Linux";
+                  return "未知操作系统";
+                }
+
+                function parseBrowser(ua) {
+                  if (/Chrome\/(\d+)/.test(ua)) return "Chrome " + ua.match(/Chrome\/(\d+)/)[1];
+                  if (/Firefox\/(\d+)/.test(ua)) return "Firefox " + ua.match(/Firefox\/(\d+)/)[1];
+                  if (/Safari\/(\d+)/.test(ua) && !/Chrome/.test(ua)) return "Safari";
+                  if (/Edg\/(\d+)/.test(ua)) return "Edge " + ua.match(/Edg\/(\d+)/)[1];
+                  if (/OPR\/(\d+)/.test(ua)) return "Opera " + ua.match(/OPR\/(\d+)/)[1];
+                  return "未知浏览器";
+                }
+
+                osInfoElem.textContent = "操作系统: " + parseOS(ua);
+                browserInfoElem.textContent = "浏览器: " + parseBrowser(ua);
+
+                const accessDeniedElem = document.getElementById('access-denied');
+                const text = 'ACCESS DENIED';
+                let index = 0;
+                function typeWriter() {
+                  if(index <= text.length) {
+                    accessDeniedElem.textContent = text.slice(0, index);
+                    index++;
+                    setTimeout(typeWriter, 150);
+                  }
+                }
+                typeWriter();
+
+                function createSnowflake() {
+                  const snowflake = document.createElement("div");
+                  snowflake.classList.add("snowflake");
+                  snowflake.textContent = "❄";
+                  snowflake.style.left = Math.random() * window.innerWidth + "px";
+                  snowflake.style.fontSize = 12 + Math.random() * 24 + "px";
+                  snowflake.style.animationDuration = 5 + Math.random() * 5 + "s";
+                  document.body.appendChild(snowflake);
+                  setTimeout(() => {
+                    snowflake.remove();
+                  }, 10000);
+                }
+                setInterval(createSnowflake, 300);
+              </script>
+            </body>
+            </html>
+              ]]
+            end
+
+            -- 主入口函数，每请求调用
+            function envoy_on_request(request_handle)
+              local headers = request_handle:headers()
+              local ip = get_client_ip(request_handle, headers)
+              local path = headers:get(":path") or "/"
+
+              -- 定期清理数据
+              periodic_clean(request_handle)
+
+              -- 白名单 IP 直接放行
+              if whitelist[ip] then
+                log(request_handle, "info", "Whitelist IP allowed: " .. ip)
+                return
+              end
+
+              -- 黑名单或自动封禁 IP 拒绝访问
+              if blacklist[ip] or check_auto_ban(request_handle, ip) then
+                log(request_handle, "warn", "Blocked IP: " .. ip)
+              request_handle:respond(
+                {
+                  [":status"] = "403",
+                  ["content-type"] = "text/html; charset=utf-8"
+                },
+                render_block_page(ip)
+              )
+                return
+              end
+
+              -- 判断是否认证用户，获取限流阈值
+              local authenticated = is_authenticated(headers)
+              local limit = get_limit(path, authenticated)
+              local key = ip .. ":" .. path
+              local count = get_count(request_handle, key)
+
+              -- 超过限流阈值，自动封禁 IP
+              if count >= limit then
+                auto_ban(request_handle, ip)
+                request_handle:respond({ [":status"] = "400" }, "Forbidden: Rate limit exceeded, IP banned temporarily\n")
+                return
+              else
+                -- 计数 +1，允许访问
+                add_request(request_handle, key)
+                log(request_handle, "info", string.format("Request allowed: IP=%s Path=%s Count=%d Limit=%d Auth=%s", ip, path, count + 1, limit, tostring(authenticated)))
+              end
+            end
