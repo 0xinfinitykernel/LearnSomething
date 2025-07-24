@@ -57,9 +57,7 @@ spec:
             local AUTH_LIMIT = 2000                   -- 认证用户限流阈值
             local PATH_LIMITS = {                       -- 特殊路径限流阈值
               ["/media/commit/"] = 3000,
-              ["/ak/zn-cloud-wcs/media/commit/"] = 3000,
               -- Git 拉代码及推送路径（避免触发限流）
-              ["/ak/"] = 10000,
               ["/.git/"] = 10000,
               ["/git/"] = 10000,
               ["/repo/"] = 10000,
